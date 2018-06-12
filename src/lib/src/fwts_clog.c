@@ -37,11 +37,26 @@
 #define UNIQUE_CLOG_LABEL       "Clog"
 
 /*
+￼*  coreboot dmi entry
+￼*/
+#define COREBOOT_BIOS_VENDOR	"coreboot"
+
+/*
  *  free coreboot log list
  */
 void fwts_clog_free(fwts_list *clog)
 {
         fwts_log_free(clog);
+}
+
+bool fwts_clog_available(fwts_framework *fw)
+{
+    char *vendor;
+
+    if (fw->clog || ((vendor = fwts_get("/sys/class/dmi/id/bios_vendor")) && strstr(vendor, COREBOOT_BIOS_VENDOR)))
+        return true;
+
+   return false;
 }
 
 /*
