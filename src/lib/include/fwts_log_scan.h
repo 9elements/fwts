@@ -33,7 +33,7 @@ typedef enum {
 typedef struct {
 	fwts_compare_mode compare_mode;
 	fwts_log_level level;
-        const char *pattern;
+	const char *pattern;
 	const char *advice;
 	char *label;
 	regex_t compiled;

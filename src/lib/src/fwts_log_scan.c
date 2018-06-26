@@ -214,7 +214,8 @@ char *fwts_log_unique_label(const char *str, const char *label)
         int count = 0;
         bool forceupper = true;
 
-        strcpy(buffer, label);
+        strncpy(buffer, label, sizeof(buffer)-1);
+        buffer[sizeof(buffer)-1] = '\0';
         dst = buffer + strlen(label);
 
         while ((dst < (buffer + sizeof(buffer) - 1)) &&

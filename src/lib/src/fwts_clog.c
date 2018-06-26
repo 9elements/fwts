@@ -51,9 +51,16 @@ void fwts_clog_free(fwts_list *clog)
 
 bool fwts_clog_available(fwts_framework *fw)
 {
+    bool coreboot_tag = false;
     char *vendor = fwts_get("/sys/class/dmi/id/bios_vendor");
 
-    if (fw->clog || (vendor && strstr(vendor, COREBOOT_BIOS_VENDOR)))
+    if (vendor) {
+        if (strstr(vendor, COREBOOT_BIOS_VENDOR))
+            coreboot_tag = true;
+        free(vendor);
+    }
+
+    if (fw->clog || coreboot_tag)
         return true;
 
    return false;
