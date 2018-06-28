@@ -37,7 +37,6 @@
 
 // cbmem coreboot
 #define LB_TAG_CBMEM_ENTRY 0x0031
-
 #define LB_TAG_SERIAL		0x000f
 #define LB_TAG_CBMEM_CONSOLE	0x0017
 #define LB_TAG_FORWARD		0x0011
@@ -63,7 +62,7 @@ struct mapping {
         size_t size;
 };
 
-static struct cbmem_cons *cbmem_console;
+static const struct cbmem_cons *cbmem_console;
 struct mapping console_mapping;
 static uint32_t cbmem_console_size;
 
@@ -435,8 +434,6 @@ static int parse_cbtable(uint64_t address, size_t table_size)
 
         buf = map_memory(&header_mapping, address, req_size);
 
-	printf("buf %p\n",buf);
-
         if (!buf)
                 return -1;
 
@@ -497,17 +494,15 @@ static int parse_cbtable(uint64_t address, size_t table_size)
         return -1;
 }
 
-#if 0
-
-int main(int argc, char** argv)
+void cbmem_console_dump(void)
 {
-        int j;
+        unsigned int j;
 
 	mem_fd = open("/dev/mem", O_RDONLY, 0);
         if (mem_fd < 0) {
                 fprintf(stderr, "Failed to gain memory access: %s\n",
                         strerror(errno));
-                return 1;
+                return;
         }
 
 
@@ -527,16 +522,16 @@ int main(int argc, char** argv)
 	cbmem_console_size = console_p->size;
 
 	cbmem_console = map_memory(&console_mapping, console.cbmem_addr, console_p->size);
-	printf("cbmem_console: %p\n",cbmem_console);
 
 	char log[console_p->size];
 
-	printf("cbmem_addr: %p\n",console.cbmem_addr);
-	printf("cbmem_size: %d\n",console_p->size);
-
 	memconsole_coreboot_read(log, 0, sizeof(log));
 	printf("LOG:\n%s",log);
-	return 0;
+	return;
 }
 
-#endif
+char *fwts_coreboot_cbmem_console_dump(void)
+{
+	/*  dummy function */
+	return NULL;
+}
