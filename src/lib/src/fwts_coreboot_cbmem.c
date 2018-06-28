@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <inttypes.h>
+#include <stdlib.h>
 
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -52,7 +53,7 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 /* verbose output? */
-static int verbose = 1;
+static int verbose = 0;
 #define debug(x...) if(verbose) printf(x)
 /* ============== */
 
@@ -504,37 +505,34 @@ static ssize_t memconsole_coreboot_read(char *buf, size_t pos, size_t count)
 
 char *cbmem_console_dump(void)
 {
-        unsigned int j;
+	unsigned int j;
 
 	mem_fd = open("/dev/mem", O_RDONLY, 0);
-        if (mem_fd < 0) {
-                fprintf(stderr, "Failed to gain memory access: %s\n",
-                        strerror(errno));
-                return NULL;
-        }
+	if (mem_fd < 0) {
+		fprintf(stderr, "Failed to gain memory access: %s\n",
+			strerror(errno));
+		return NULL;
+	}
 
-        unsigned long long possible_base_addresses[] = { 0, 0xf0000 };
+	unsigned long long possible_base_addresses[] = { 0, 0xf0000 };
 
-        /* Find and parse coreboot table */
-        for (j = 0; j < ARRAY_SIZE(possible_base_addresses); j++) {
-                if (!parse_cbtable(possible_base_addresses[j], 0))
-                        break;
-        }
+	/* Find and parse coreboot table */
+	for (j = 0; j < ARRAY_SIZE(possible_base_addresses); j++) {
+		if (!parse_cbtable(possible_base_addresses[j], 0))
+			break;
+	}
 	const struct cbmem_console *console_p;
-	size_t size;
 
-	size = sizeof(*console_p);
-	console_p = map_memory(&console_mapping, console.cbmem_addr, size);
+	console_p = map_memory(&console_mapping, console.cbmem_addr, sizeof(*console_p));
 
 	cbmem_console_size = console_p->size;
 
 	cbmem_console = map_memory(&console_mapping, console.cbmem_addr, cbmem_console_size);
 
-	char log[console_p->size];
+	char *log = malloc(console_p->size);
 
-	memconsole_coreboot_read(log, 0, sizeof(log));
-	printf("LOG:\n%s",log);
-	return NULL;
+	memconsole_coreboot_read(log, 0, console_p->size);
+	return log;
 }
 
 char *fwts_coreboot_cbmem_console_dump(void)
@@ -547,7 +545,10 @@ char *fwts_coreboot_cbmem_console_dump(void)
 #ifdef __MAIN__
 int main(int argc, const char *argv[])
 {
-	printf("LOG:\n%s",cbmem_console_dump());
+	char *log;
+	log = cbmem_console_dump();
+	printf("LOG:\n%s",log);
+	free(log);
 	return 0;
 }
 #endif
