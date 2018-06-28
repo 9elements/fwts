@@ -22,7 +22,13 @@
 #include "fwts.h"
 
 fwts_list* fwts_coreboot_cbmem_log(void) {
-	fwts_list *console;
-	console = fwts_list_from_text(fwts_coreboot_cbmem_console_dump());
-	return console;
+
+	fwts_list *console_list;
+	char *console;
+
+	console = fwts_coreboot_cbmem_console_dump();
+	console_list = fwts_list_from_text(console);
+	free(console);
+
+	return console_list;
 }

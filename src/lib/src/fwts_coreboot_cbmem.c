@@ -537,8 +537,7 @@ char *cbmem_console_dump(void)
 
 char *fwts_coreboot_cbmem_console_dump(void)
 {
-	/*  dummy function  */
-	return NULL;
+	return cbmem_console_dump();
 }
 
 /* for debugging */
