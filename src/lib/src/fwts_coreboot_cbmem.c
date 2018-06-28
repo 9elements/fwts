@@ -503,7 +503,7 @@ static ssize_t memconsole_coreboot_read(char *buf, size_t pos, size_t count)
 //===========================================
 //===========================================
 
-char *cbmem_console_dump(void)
+char *fwts_coreboot_cbmem_console_dump(void)
 {
 	unsigned int j;
 
@@ -529,15 +529,10 @@ char *cbmem_console_dump(void)
 
 	cbmem_console = map_memory(&console_mapping, console.cbmem_addr, cbmem_console_size);
 
-	char *log = malloc(console_p->size);
+	char *coreboot_log = malloc(console_p->size);
 
-	memconsole_coreboot_read(log, 0, console_p->size);
-	return log;
-}
-
-char *fwts_coreboot_cbmem_console_dump(void)
-{
-	return cbmem_console_dump();
+	memconsole_coreboot_read(coreboot_log, 0, console_p->size);
+	return coreboot_log;
 }
 
 /* for debugging */
@@ -545,7 +540,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 int main(int argc, const char *argv[])
 {
 	char *log;
-	log = cbmem_console_dump();
+	log = fwts_coreboot_cbmem_console_dump();
 	printf("LOG:\n%s",log);
 	free(log);
 	return 0;
