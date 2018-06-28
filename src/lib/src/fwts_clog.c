@@ -99,7 +99,7 @@ void fwts_clog_scan_patterns(fwts_framework *fw,
         void *private,
         int *errors)
 {
-    const char *advice =
+    static char *advice =
         "This is a bug picked up by coreboot, but as yet, the "
         "firmware test suite has no diagnostic advice for this particular problem.";
     fwts_log_scan_patterns(fw, line, repeated, prevline, private, errors, "coreboot", advice);
