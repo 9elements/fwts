@@ -244,6 +244,8 @@ static int parse_cbtable_entries(const void *lbtable, size_t table_size, uint64_
 		case LB_TAG_CBMEM_CONSOLE: {
 			debug("    Found cbmem console.\n");
 			*cbmem_console_addr = parse_cbmem_ref((struct lb_cbmem_ref *) lbr_p).cbmem_addr;
+			if (cbmem_console_addr)
+				return 0;
 			continue;
 		}
 		case LB_TAG_FORWARD: {
@@ -369,45 +371,6 @@ ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 #define CURSOR_MASK ((1 << 28) - 1)
 #define OVERFLOW (1 << 31)
 
-static struct cbmem_console *cbmem_console;
-static u32 cbmem_console_size;
-
-/*
- * The cbmem_console structure is read again on every access because it may
- * change at any time if runtime firmware logs new messages. This may rarely
- * lead to race conditions where the firmware overwrites the beginning of the
- * ring buffer with more lines after we have already read |cursor|. It should be
- * rare and harmless enough that we don't spend extra effort working around it.
- */
-static ssize_t memconsole_coreboot_read(char *buf, size_t pos, size_t count)
-{
-	u32 cursor = cbmem_console->cursor & CURSOR_MASK;
-	u32 flags = cbmem_console->cursor & ~CURSOR_MASK;
-	u32 size = cbmem_console_size;
-	struct seg {	/* describes ring buffer segments in logical order */
-		u32 phys;	/* physical offset from start of mem buffer */
-		u32 len;	/* length of segment */
-	} seg[2] = { {0}, {0} };
-	size_t done = 0;
-	unsigned int i;
-
-	if (flags & OVERFLOW) {
-		if (cursor > size)	/* Shouldn't really happen, but... */
-			cursor = 0;
-		seg[0] = (struct seg){.phys = cursor, .len = size - cursor};
-		seg[1] = (struct seg){.phys = 0, .len = cursor};
-	} else {
-		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, size)};
-	}
-
-	for (i = 0; i < ARRAY_SIZE(seg) && count > done; i++) {
-		done += memory_read_from_buffer(buf + done, count - done, &pos,
-			cbmem_console->body + seg[i].phys, seg[i].len);
-		pos -= seg[i].len;
-	}
-	return done;
-}
-
 //===========================================
 //===========================================
 //===========================================
@@ -438,15 +401,40 @@ char *fwts_coreboot_cbmem_console_dump(void)
 
 	console_p = map_memory(cbmem_console_addr, sizeof(*console_p));
 
-	cbmem_console_size = console_p->size;
-
-	cbmem_console = map_memory(cbmem_console_addr, cbmem_console_size);
+	struct cbmem_console *console = map_memory(cbmem_console_addr, console_p->size);
 
 	char *coreboot_log = malloc(console_p->size);
 
-	memconsole_coreboot_read(coreboot_log, 0, console_p->size);
+	size_t pos = 0;
+	size_t count = console_p->size;
+	u32 cursor = console->cursor & CURSOR_MASK;
+	u32 flags = console->cursor & ~CURSOR_MASK;
+	u32 size = console_p->size;
+	struct seg {	/* describes ring buffer segments in logical order */
+		u32 phys;	/* physical offset from start of mem buffer */
+		u32 len;	/* length of segment */
+	} seg[2] = { {0}, {0} };
+	size_t done = 0;
+	unsigned int i;
+
+	if (flags & OVERFLOW) {
+		if (cursor > size)	/* Shouldn't really happen, but... */
+			cursor = 0;
+		seg[0] = (struct seg){.phys = cursor, .len = size - cursor};
+		seg[1] = (struct seg){.phys = 0, .len = cursor};
+	} else {
+		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, size)};
+	}
+
+	for (i = 0; i < ARRAY_SIZE(seg) && count > done; i++) {
+		done += memory_read_from_buffer(coreboot_log + done, count - done, &pos,
+			console->body + seg[i].phys, seg[i].len);
+		pos -= seg[i].len;
+	}
+
 	free(console_p);
-	free(cbmem_console);
+	free(console);
+
 	return coreboot_log;
 }
 
