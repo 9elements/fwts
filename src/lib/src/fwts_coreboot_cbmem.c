@@ -148,15 +148,7 @@ struct cbmem_console {
 /* Return < 0 on error, 0 on success. */
 static int parse_cbtable(u64 address, size_t table_size);
 
-struct mapping {
-	void *virt;
-	size_t offset;
-	size_t virt_size;
-	unsigned long long phys;
-	size_t size;
-};
-
-void *map_memory_new(unsigned long long addr, size_t size)
+void *map_memory(unsigned long long addr, size_t size)
 {
 	int fd;
 	void *mem;
@@ -182,99 +174,9 @@ void *map_memory_new(unsigned long long addr, size_t size)
 	return mem;
 }
 
-/* File handle used to access /dev/mem */
-static int mem_fd;
-static struct mapping lbtable_mapping;
-
-static unsigned long long system_page_size(void)
-{
-	static unsigned long long page_size;
-
-	if (!page_size)
-		page_size = getpagesize();
-
-	return page_size;
-}
-
 static inline size_t size_to_mib(size_t sz)
 {
 	return sz >> 20;
-}
-
-/* Return mapping of physical address requested. */
-static const void *mapping_virt(const struct mapping *mapping)
-{
-	const char *v = mapping->virt;
-
-	if (v == NULL)
-		return NULL;
-
-	return v + mapping->offset;
-}
-
-/* Returns virtual address on success, NULL on error. mapping is filled in. */
-static const void *map_memory(struct mapping *mapping, unsigned long long phys,
-				size_t sz)
-{
-	void *v;
-	unsigned long long page_size;
-
-	page_size = system_page_size();
-
-	mapping->virt = NULL;
-	mapping->offset = phys % page_size;
-	mapping->virt_size = sz + mapping->offset;
-	mapping->size = sz;
-	mapping->phys = phys;
-
-	if (size_to_mib(mapping->virt_size) == 0) {
-		debug("Mapping %zuB of physical memory at 0x%llx (requested 0x%llx).\n",
-			mapping->virt_size, phys - mapping->offset, phys);
-	} else {
-		debug("Mapping %zuMB of physical memory at 0x%llx (requested 0x%llx).\n",
-			size_to_mib(mapping->virt_size), phys - mapping->offset,
-			phys);
-	}
-
-	v = mmap(NULL, mapping->virt_size, PROT_READ, MAP_SHARED, mem_fd,
-			phys - mapping->offset);
-
-	if (v == MAP_FAILED) {
-		debug("Mapping failed %zuB of physical memory at 0x%llx.\n",
-			mapping->virt_size, phys - mapping->offset);
-		return NULL;
-	}
-
-	mapping->virt = v;
-
-	if (mapping->offset != 0)
-		debug("  ... padding virtual address with 0x%zx bytes.\n",
-			mapping->offset);
-
-	return mapping_virt(mapping);
-}
-
-/* Returns 0 on success, < 0 on error. mapping is cleared if successful. */
-static int unmap_memory(struct mapping *mapping)
-{
-	if (mapping->virt == NULL)
-		return -1;
-
-	munmap(mapping->virt, mapping->virt_size);
-	mapping->virt = NULL;
-	mapping->offset = 0;
-	mapping->virt_size = 0;
-
-	return 0;
-}
-
-/* Return size of physical address mapping requested. */
-static size_t mapping_size(const struct mapping *mapping)
-{
-	if (mapping->virt == NULL)
-		return 0;
-
-	return mapping->size;
 }
 
 /*
@@ -331,12 +233,10 @@ static struct lb_cbmem_ref parse_cbmem_ref(const struct lb_cbmem_ref *cbmem_ref)
 }
 
 /* Return < 0 on error, 0 on success, 1 if forwarding table entry found. */
-static int parse_cbtable_entries(const struct mapping *table_mapping)
+static int parse_cbtable_entries(const void *lbtable, size_t table_size)
 {
 	size_t i;
 	const struct lb_record* lbr_p;
-	size_t table_size = mapping_size(table_mapping);
-	const void *lbtable = mapping_virt(table_mapping);
 	int forwarding_table_found = 0;
 
 	for (i = 0; i < table_size; i += lbr_p->size) {
@@ -376,8 +276,7 @@ static int parse_cbtable_entries(const struct mapping *table_mapping)
 /* Return < 0 on error, 0 on success. */
 static int parse_cbtable(u64 address, size_t table_size)
 {
-	const void *buf;
-	struct mapping header_mapping;
+	void *buf;
 	size_t req_size;
 	size_t i;
 
@@ -389,7 +288,7 @@ static int parse_cbtable(u64 address, size_t table_size)
 	debug("Looking for coreboot table at %" PRIx64 " %zd bytes.\n",
 		address, req_size);
 
-	buf = map_memory(&header_mapping, address, req_size);
+	buf = map_memory(address, req_size);
 
 	if (!buf)
 		return -1;
@@ -398,7 +297,7 @@ static int parse_cbtable(u64 address, size_t table_size)
 	for (i = 0; i <= req_size - sizeof(struct lb_header); i += 16) {
 		int ret;
 		const struct lb_header *lbh;
-		struct mapping table_mapping;
+		void *map;
 
 		lbh = buf + i;
 		if (memcmp(lbh->signature, "LBIO", sizeof(lbh->signature)) ||
@@ -408,45 +307,40 @@ static int parse_cbtable(u64 address, size_t table_size)
 		}
 
 		/* Map in the whole table to parse. */
-		if (!map_memory(&table_mapping, address + i + lbh->header_bytes,
-				 lbh->table_bytes)) {
+		if (!(map = map_memory(address + i + lbh->header_bytes,
+				 lbh->table_bytes))) {
 			debug("Couldn't map in table\n");
 			continue;
 		}
 
-		if (ipchcksum(mapping_virt(&table_mapping), lbh->table_bytes) !=
+		if (ipchcksum(map, lbh->table_bytes) !=
 		    lbh->table_checksum) {
 			debug("Signature found, but wrong checksum.\n");
-			unmap_memory(&table_mapping);
+			free(map);
 			continue;
 		}
 
 		debug("Found!\n");
 
-		ret = parse_cbtable_entries(&table_mapping);
+		ret = parse_cbtable_entries(map,lbh->table_bytes);
 
 		/* Table parsing failed. */
 		if (ret < 0) {
-			unmap_memory(&table_mapping);
+			free(map);
 			continue;
 		}
 
-		/* Succeeded in parsing the table. Header not needed anymore. */
-		unmap_memory(&header_mapping);
+		free(buf);
 
 		/*
 		 * Table parsing succeeded. If forwarding table not found update
 		 * coreboot table mapping for future use.
 		 */
-		if (ret == 0)
-			lbtable_mapping = table_mapping;
-		else
-			unmap_memory(&table_mapping);
-
+		free(map);
 		return 0;
 	}
 
-	unmap_memory(&header_mapping);
+	free(buf);
 
 	return -1;
 }
@@ -454,8 +348,6 @@ static int parse_cbtable(u64 address, size_t table_size)
 /* ################
  * ## LINUX CODE ##
  * ################*/
-
-struct mapping console_mapping;
 
 ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 				const void *from, size_t available)
@@ -476,17 +368,10 @@ ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
  * ## GOOGLE CODE ##
  * #################*/
 
-/* CBMEM firmware console log descriptor. */
-struct cbmem_cons {
-	u32 size_dont_access_after_boot;
-	u32 cursor;
-	u8  body[0];
-} __packed;
-
 #define CURSOR_MASK ((1 << 28) - 1)
 #define OVERFLOW (1 << 31)
 
-static struct cbmem_cons *cbmem_console;
+static struct cbmem_console *cbmem_console;
 static u32 cbmem_console_size;
 
 /*
@@ -532,6 +417,7 @@ static ssize_t memconsole_coreboot_read(char *buf, size_t pos, size_t count)
 char *fwts_coreboot_cbmem_console_dump(void)
 {
 	unsigned int j;
+	int mem_fd;
 
 	mem_fd = open("/dev/mem", O_RDONLY, 0);
 	if (mem_fd < 0) {
@@ -546,14 +432,16 @@ char *fwts_coreboot_cbmem_console_dump(void)
 	for (j = 0; j < ARRAY_SIZE(possible_base_addresses); j++) {
 		if (!parse_cbtable(possible_base_addresses[j], 0))
 			break;
+		if (j == ARRAY_SIZE(possible_base_addresses))
+			return NULL;
 	}
 	struct cbmem_console *console_p;
 
-	console_p = map_memory_new(console.cbmem_addr, sizeof(*console_p));
+	console_p = map_memory(console.cbmem_addr, sizeof(*console_p));
 
 	cbmem_console_size = console_p->size;
 
-	cbmem_console = map_memory_new(console.cbmem_addr, cbmem_console_size);
+	cbmem_console = map_memory(console.cbmem_addr, cbmem_console_size);
 
 	char *coreboot_log = malloc(console_p->size);
 
