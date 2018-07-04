@@ -53,7 +53,7 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 /* verbose output? */
-static int verbose = 0;
+static int verbose = 1;
 #define debug(x...) if(verbose) printf(x)
 /* ============== */
 
@@ -155,6 +155,32 @@ struct mapping {
 	unsigned long long phys;
 	size_t size;
 };
+
+void *map_memory_new(unsigned long long addr, size_t size)
+{
+	int fd;
+	void *mem;
+	void *phy;
+	unsigned long long page_size;
+	size_t page_offset;
+
+	fd = open("/dev/mem", O_RDONLY, 0);
+	if (!fd)
+		return NULL;
+
+	page_size = getpagesize();
+	page_offset = addr & (page_size - 1);
+	addr &= ~(page_size - 1);
+
+	mem = malloc(size);
+	phy = mmap(NULL, (size + (page_size - 1)) & ~(page_size - 1), PROT_READ, MAP_SHARED, fd, addr );
+
+	memcpy(mem, phy + page_offset, size);
+	munmap(phy, size);
+	close(fd);
+
+	return mem;
+}
 
 /* File handle used to access /dev/mem */
 static int mem_fd;
@@ -524,14 +550,18 @@ char *fwts_coreboot_cbmem_console_dump(void)
 	const struct cbmem_console *console_p;
 
 	console_p = map_memory(&console_mapping, console.cbmem_addr, sizeof(*console_p));
+	//console_p = map_memory_new(console.cbmem_addr, sizeof(*console_p));
 
 	cbmem_console_size = console_p->size;
 
 	cbmem_console = map_memory(&console_mapping, console.cbmem_addr, cbmem_console_size);
+	//cbmem_console = map_memory_new(console.cbmem_addr, cbmem_console_size);
 
 	char *coreboot_log = malloc(console_p->size);
 
 	memconsole_coreboot_read(coreboot_log, 0, console_p->size);
+	//free(console_p);
+	//free(cbmem_console);
 	return coreboot_log;
 }
 
