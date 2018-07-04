@@ -146,7 +146,7 @@ struct cbmem_console {
  * ################*/
 
 /* Return < 0 on error, 0 on success. */
-static int parse_cbtable(u64 address, size_t table_size);
+static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmen_console_addr);
 
 void *map_memory(unsigned long long addr, size_t size)
 {
@@ -207,8 +207,6 @@ static u16 ipchcksum(const void *addr, unsigned size)
  * none found.
  */
 
-//static struct lb_cbmem_ref timestamps;
-static struct lb_cbmem_ref console;
 //static struct lb_memory_range cbmem;
 
 /* This is a work-around for a nasty problem introduced by initially having
@@ -233,7 +231,7 @@ static struct lb_cbmem_ref parse_cbmem_ref(const struct lb_cbmem_ref *cbmem_ref)
 }
 
 /* Return < 0 on error, 0 on success, 1 if forwarding table entry found. */
-static int parse_cbtable_entries(const void *lbtable, size_t table_size)
+static int parse_cbtable_entries(const void *lbtable, size_t table_size, uint64_t *cbmem_console_addr)
 {
 	size_t i;
 	const struct lb_record* lbr_p;
@@ -245,7 +243,7 @@ static int parse_cbtable_entries(const void *lbtable, size_t table_size)
 		switch (lbr_p->tag) {
 		case LB_TAG_CBMEM_CONSOLE: {
 			debug("    Found cbmem console.\n");
-			console = parse_cbmem_ref((struct lb_cbmem_ref *) lbr_p);
+			*cbmem_console_addr = parse_cbmem_ref((struct lb_cbmem_ref *) lbr_p).cbmem_addr;
 			continue;
 		}
 		case LB_TAG_FORWARD: {
@@ -257,7 +255,7 @@ static int parse_cbtable_entries(const void *lbtable, size_t table_size)
 			struct lb_forward lbf_p =
 				*(const struct lb_forward *) lbr_p;
 			debug("    Found forwarding entry.\n");
-			ret = parse_cbtable(lbf_p.forward, 0);
+			ret = parse_cbtable(lbf_p.forward, 0, cbmem_console_addr);
 
 			/* Assume the forwarding entry is valid. If this fails
 			 * then there's a total failure. */
@@ -274,7 +272,7 @@ static int parse_cbtable_entries(const void *lbtable, size_t table_size)
 }
 
 /* Return < 0 on error, 0 on success. */
-static int parse_cbtable(u64 address, size_t table_size)
+static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmem_console_table)
 {
 	void *buf;
 	size_t req_size;
@@ -322,7 +320,7 @@ static int parse_cbtable(u64 address, size_t table_size)
 
 		debug("Found!\n");
 
-		ret = parse_cbtable_entries(map,lbh->table_bytes);
+		ret = parse_cbtable_entries(map,lbh->table_bytes, cbmem_console_table);
 
 		/* Table parsing failed. */
 		if (ret < 0) {
@@ -418,6 +416,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 {
 	unsigned int j;
 	int mem_fd;
+	uint64_t cbmem_console_addr;
 
 	mem_fd = open("/dev/mem", O_RDONLY, 0);
 	if (mem_fd < 0) {
@@ -430,18 +429,18 @@ char *fwts_coreboot_cbmem_console_dump(void)
 
 	/* Find and parse coreboot table */
 	for (j = 0; j < ARRAY_SIZE(possible_base_addresses); j++) {
-		if (!parse_cbtable(possible_base_addresses[j], 0))
+		if (!parse_cbtable(possible_base_addresses[j], 0, &cbmem_console_addr))
 			break;
 		if (j == ARRAY_SIZE(possible_base_addresses))
 			return NULL;
 	}
 	struct cbmem_console *console_p;
 
-	console_p = map_memory(console.cbmem_addr, sizeof(*console_p));
+	console_p = map_memory(cbmem_console_addr, sizeof(*console_p));
 
 	cbmem_console_size = console_p->size;
 
-	cbmem_console = map_memory(console.cbmem_addr, cbmem_console_size);
+	cbmem_console = map_memory(cbmem_console_addr, cbmem_console_size);
 
 	char *coreboot_log = malloc(console_p->size);
 
