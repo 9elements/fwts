@@ -486,7 +486,7 @@ struct cbmem_cons {
 #define CURSOR_MASK ((1 << 28) - 1)
 #define OVERFLOW (1 << 31)
 
-static const struct cbmem_cons *cbmem_console;
+static struct cbmem_cons *cbmem_console;
 static u32 cbmem_console_size;
 
 /*
@@ -547,21 +547,19 @@ char *fwts_coreboot_cbmem_console_dump(void)
 		if (!parse_cbtable(possible_base_addresses[j], 0))
 			break;
 	}
-	const struct cbmem_console *console_p;
+	struct cbmem_console *console_p;
 
-	console_p = map_memory(&console_mapping, console.cbmem_addr, sizeof(*console_p));
-	//console_p = map_memory_new(console.cbmem_addr, sizeof(*console_p));
+	console_p = map_memory_new(console.cbmem_addr, sizeof(*console_p));
 
 	cbmem_console_size = console_p->size;
 
-	cbmem_console = map_memory(&console_mapping, console.cbmem_addr, cbmem_console_size);
-	//cbmem_console = map_memory_new(console.cbmem_addr, cbmem_console_size);
+	cbmem_console = map_memory_new(console.cbmem_addr, cbmem_console_size);
 
 	char *coreboot_log = malloc(console_p->size);
 
 	memconsole_coreboot_read(coreboot_log, 0, console_p->size);
-	//free(console_p);
-	//free(cbmem_console);
+	free(console_p);
+	free(cbmem_console);
 	return coreboot_log;
 }
 
