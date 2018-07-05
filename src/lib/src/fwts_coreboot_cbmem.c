@@ -28,68 +28,25 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#define CURSOR_MASK ((1 << 28) - 1)
+#define OVERFLOW (1 << 31)
 
-/*  coreboot  */
 #define LB_TAG_CBMEM_ENTRY	0x0031
 #define LB_TAG_SERIAL		0x000f
 #define LB_TAG_CBMEM_CONSOLE	0x0017
 #define LB_TAG_FORWARD		0x0011
-/* ========== */
 
-/* gooole module */
 #define MIN(a,b) ((a)<(b) ? (a):(b))
-#define __packed __attribute__ ((__packed__))
-/* ============= */
-
-/* cbmem coreboot */
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+#define __packed __attribute__ ((__packed__))
 
 /* verbose output? */
 static int verbose = 0;
 #define debug(x...) if(verbose) printf(x)
-/* ============== */
 
-/* ###################
- * ## COREBOOT CODE ##
- * ###################*/
-
-/* Every entry in the boot enviroment list will correspond to a boot
- * info record.  Encoding both type and size.  The type is obviously
- * so you can tell what it is.  The size allows you to skip that
- * boot enviroment record if you don't know what it easy.  This allows
- * forward compatibility with records not yet defined.
- */
 struct lb_record {
         uint32_t tag;           /* tag ID */
         uint32_t size;          /* size of record (in bytes) */
-};
-
-struct lb_uint64 {
-	uint32_t lo;
-	uint32_t hi;
-};
-
-struct lb_memory_range {
-	struct lb_uint64 start;
-	struct lb_uint64 size;
-	uint32_t type;
-};
-
-/*
- * There can be more than one of these records as there is one per cbmem entry.
- */
-struct lb_cbmem_entry {
-        uint32_t tag;
-        uint32_t size;
-
-        uint64_t address;
-        uint32_t entry_size;
-        uint32_t id;
 };
 
 struct lb_header {
@@ -114,36 +71,14 @@ struct lb_cbmem_ref {
         uint64_t cbmem_addr;
 };
 
-/*
- * Structure describing console buffer. It is overlaid on a flat memory area,
- * with body covering the extent of the memory. Once the buffer is full,
- * output will wrap back around to the start of the buffer. The high bit of the
- * cursor field gets set to indicate that this happened. If the underlying
- * storage allows this, the buffer will persist across multiple boots and append
- * to the previous log.
- *
- * NOTE: These are known implementations accessing this console that need to be
- * updated in case of structure/API changes:
- *
- * cbmem:	[coreboot]/src/util/cbmem/cbmem.c
- * libpayload:	[coreboot]/payloads/libpayload/drivers/cbmem_console.c
- * coreinfo:	[coreboot]/payloads/coreinfo/bootlog_module.c
- * Linux:	drivers/firmware/google/memconsole-coreboot.c
- * SeaBIOS:	src/firmware/coreboot.c
- * GRUB:	grub-core/term/i386/coreboot/cbmemc.c
- */
 struct cbmem_console {
-	u32 size;
-	u32 cursor;
-	u8  body[0];
+	uint32_t size;
+	uint32_t cursor;
+	uint8_t  body[0];
 }  __packed;
 
-/* ################
- * ## CBMEM CODE ##
- * ################*/
-
 /* Return < 0 on error, 0 on success. */
-static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmen_console_addr);
+static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmen_console_addr);
 
 void *map_memory(unsigned long long addr, size_t size)
 {
@@ -171,20 +106,15 @@ void *map_memory(unsigned long long addr, size_t size)
 	return mem;
 }
 
-static inline size_t size_to_mib(size_t sz)
-{
-	return sz >> 20;
-}
-
 /*
  * calculate ip checksum (16 bit quantities) on a passed in buffer. In case
  * the buffer length is odd last byte is excluded from the calculation
  */
-static u16 ipchcksum(const void *addr, unsigned size)
+static uint16_t ipchcksum(const void *addr, unsigned size)
 {
-	const u16 *p = addr;
+	const uint16_t *p = addr;
 	unsigned i, n = size / 2; /* don't expect odd sized blocks */
-	u32 sum = 0;
+	uint32_t sum = 0;
 
 	for (i = 0; i < n; i++)
 		sum += p[i];
@@ -192,19 +122,8 @@ static u16 ipchcksum(const void *addr, unsigned size)
 	sum = (sum >> 16) + (sum & 0xffff);
 	sum += (sum >> 16);
 	sum = ~sum & 0xffff;
-	return (u16) sum;
+	return (uint16_t) sum;
 }
-
-/*
- * Try finding the timestamp table and coreboot cbmem console starting from the
- * passed in memory offset.  Could be called recursively in case a forwarding
- * entry is found.
- *
- * Returns pointer to a memory buffer containg the timestamp table or zero if
- * none found.
- */
-
-//static struct lb_memory_range cbmem;
 
 /* This is a work-around for a nasty problem introduced by initially having
  * pointer sized entries in the lb_cbmem_ref structures. This caused problems
@@ -271,7 +190,7 @@ static int parse_cbtable_entries(const void *lbtable, size_t table_size, uint64_
 }
 
 /* Return < 0 on error, 0 on success. */
-static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmem_console_table)
+static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmem_console_table)
 {
 	void *buf;
 	size_t req_size;
@@ -342,10 +261,6 @@ static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmem_console
 	return -1;
 }
 
-/* ################
- * ## LINUX CODE ##
- * ################*/
-
 ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 				const void *from, size_t available)
 {
@@ -364,17 +279,6 @@ ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 
 	return count;
 }
-
-/* #################
- * ## GOOGLE CODE ##
- * #################*/
-
-#define CURSOR_MASK ((1 << 28) - 1)
-#define OVERFLOW (1 << 31)
-
-//===========================================
-//===========================================
-//===========================================
 
 char *fwts_coreboot_cbmem_console_dump(void)
 {
@@ -409,12 +313,12 @@ char *fwts_coreboot_cbmem_console_dump(void)
 
 	size_t pos = 0;
 	size_t count = console_p->size;
-	u32 cursor = console->cursor & CURSOR_MASK;
-	u32 flags = console->cursor & ~CURSOR_MASK;
-	u32 size = console_p->size;
+	uint32_t cursor = console->cursor & CURSOR_MASK;
+	uint32_t flags = console->cursor & ~CURSOR_MASK;
+	uint32_t size = console_p->size;
 	struct seg {	/* describes ring buffer segments in logical order */
-		u32 phys;	/* physical offset from start of mem buffer */
-		u32 len;	/* length of segment */
+		uint32_t phys;	/* physical offset from start of mem buffer */
+		uint32_t len;	/* length of segment */
 	} seg[2] = { {0}, {0} };
 	size_t done = 0;
 	unsigned int i;
