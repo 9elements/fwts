@@ -80,7 +80,7 @@ struct cbmem_console {
 /* Return < 0 on error, 0 on success. */
 static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmen_console_addr);
 
-void *map_memory(unsigned long long addr, size_t size)
+static void *map_memory(unsigned long long addr, size_t size)
 {
 	int fd;
 	void *mem;
@@ -261,7 +261,7 @@ static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmem_co
 	return -1;
 }
 
-ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
+static ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 				const void *from, size_t available)
 {
 	size_t i;
