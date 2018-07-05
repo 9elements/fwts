@@ -402,7 +402,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 
 	console_p = map_memory(cbmem_console_addr, sizeof(*console_p));
 
-	struct cbmem_console *console = map_memory(cbmem_console_addr, console_p->size);
+	struct cbmem_console *console = map_memory(cbmem_console_addr, console_p->size + sizeof(*console));
 
 	char *coreboot_log = malloc(console_p->size);
 	memset(coreboot_log, 0x55, console_p->size);
