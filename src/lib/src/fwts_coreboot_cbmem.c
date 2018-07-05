@@ -20,14 +20,11 @@
  */
 
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
 #include <inttypes.h>
 #include <stdlib.h>
-
-#include <sys/mman.h>
-#include <sys/types.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <fcntl.h>
 #include <errno.h>
 
@@ -53,7 +50,7 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 /* verbose output? */
-static int verbose = 1;
+static int verbose = 0;
 #define debug(x...) if(verbose) printf(x)
 /* ============== */
 
@@ -352,13 +349,17 @@ static int parse_cbtable(u64 address, size_t table_size, uint64_t *cbmem_console
 ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 				const void *from, size_t available)
 {
+	size_t i;
 	size_t pos = *ppos;
 
 	if (pos >= available)
 		return 0;
 	if (count > available - pos)
 		count = available - pos;
-	memcpy(to, from + pos, count);
+	for (i= 0; i< count; i++) {
+            if (((char *)from)[i+pos] > '\0')
+            ((char *)to)[i] = ((char *)from)[i+pos];
+	}
 	*ppos = pos + count;
 
 	return count;
@@ -404,6 +405,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 	struct cbmem_console *console = map_memory(cbmem_console_addr, console_p->size);
 
 	char *coreboot_log = malloc(console_p->size);
+	memset(coreboot_log, 0x55, console_p->size);
 
 	size_t pos = 0;
 	size_t count = console_p->size;
@@ -425,6 +427,8 @@ char *fwts_coreboot_cbmem_console_dump(void)
 	} else {
 		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, size)};
 	}
+	debug("cursor = %x\n", (unsigned int) cursor);
+	debug("size = %x\n", (unsigned int) count);
 
 	for (i = 0; i < ARRAY_SIZE(seg) && count > done; i++) {
 		done += memory_read_from_buffer(coreboot_log + done, count - done, &pos,
@@ -444,7 +448,7 @@ int main(int argc, const char *argv[])
 {
 	char *log;
 	log = fwts_coreboot_cbmem_console_dump();
-	printf("LOG:\n%s",log);
+	printf("%s",log);
 	free(log);
 	return 0;
 }
