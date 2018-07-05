@@ -28,11 +28,11 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#include "fwts.h"
+
 #define CURSOR_MASK ((1 << 28) - 1)
 #define OVERFLOW (1 << 31)
 
-#define LB_TAG_CBMEM_ENTRY	0x0031
-#define LB_TAG_SERIAL		0x000f
 #define LB_TAG_CBMEM_CONSOLE	0x0017
 #define LB_TAG_FORWARD		0x0011
 
@@ -43,6 +43,10 @@
 /* verbose output? */
 static int verbose = 0;
 #define debug(x...) if(verbose) printf(x)
+
+/*console output? */
+static int output = 0;
+#define output(x...) if(output) printf(x)
 
 struct lb_record {
         uint32_t tag;           /* tag ID */
@@ -82,26 +86,16 @@ static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmen_co
 
 static void *map_memory(unsigned long long addr, size_t size)
 {
-	int fd;
 	void *mem;
 	void *phy;
-	unsigned long long page_size;
-	size_t page_offset;
 
-	fd = open("/dev/mem", O_RDONLY, 0);
-	if (!fd)
-		return NULL;
-
-	page_size = getpagesize();
-	page_offset = addr & (page_size - 1);
-	addr &= ~(page_size - 1);
+	phy = fwts_mmap(addr, size);
+	if (phy == FWTS_MAP_FAILED)
+		return FWTS_MAP_FAILED;
 
 	mem = malloc(size);
-	phy = mmap(NULL, (size + (page_size - 1)) & ~(page_size - 1), PROT_READ, MAP_SHARED, fd, addr );
-
-	memcpy(mem, phy + page_offset, size);
-	munmap(phy, size);
-	close(fd);
+	memcpy(mem, phy, size);
+	fwts_munmap(phy, size);
 
 	return mem;
 }
@@ -283,17 +277,11 @@ static ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 char *fwts_coreboot_cbmem_console_dump(void)
 {
 	unsigned int j;
-	int mem_fd;
 	uint64_t cbmem_console_addr;
-
-	mem_fd = open("/dev/mem", O_RDONLY, 0);
-	if (mem_fd < 0) {
-		fprintf(stderr, "Failed to gain memory access: %s\n",
-			strerror(errno));
-		return NULL;
-	}
-
 	unsigned long long possible_base_addresses[] = { 0, 0xf0000 };
+	struct cbmem_console *console_p;
+	struct cbmem_console *console;
+	char *coreboot_log;
 
 	/* Find and parse coreboot table */
 	for (j = 0; j < ARRAY_SIZE(possible_base_addresses); j++) {
@@ -302,14 +290,16 @@ char *fwts_coreboot_cbmem_console_dump(void)
 		if (j == ARRAY_SIZE(possible_base_addresses))
 			return NULL;
 	}
-	struct cbmem_console *console_p;
 
 	console_p = map_memory(cbmem_console_addr, sizeof(*console_p));
+	if (console_p == FWTS_MAP_FAILED)
+		return NULL;
 
-	struct cbmem_console *console = map_memory(cbmem_console_addr, console_p->size + sizeof(*console));
+	console = map_memory(cbmem_console_addr, console_p->size + sizeof(*console));
+	if (console == FWTS_MAP_FAILED)
+		return NULL;
 
-	char *coreboot_log = malloc(console_p->size);
-	memset(coreboot_log, 0x55, console_p->size);
+	coreboot_log = malloc(console_p->size);
 
 	size_t pos = 0;
 	size_t count = console_p->size;
@@ -343,17 +333,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 	free(console_p);
 	free(console);
 
+	output("%s\n",coreboot_log);
+
 	return coreboot_log;
 }
-
-/* for debugging */
-#ifdef __MAIN__
-int main(int argc, const char *argv[])
-{
-	char *log;
-	log = fwts_coreboot_cbmem_console_dump();
-	printf("%s",log);
-	free(log);
-	return 0;
-}
-#endif
