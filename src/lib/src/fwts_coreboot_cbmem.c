@@ -274,6 +274,36 @@ static ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 	return count;
 }
 
+static ssize_t memconsole_coreboot_read(struct cbmem_console *con, char *buf, size_t pos, size_t count)
+{
+	uint32_t cursor = con->cursor & CURSOR_MASK;
+	uint32_t flags = con->cursor & ~CURSOR_MASK;
+	struct seg {	/* describes ring buffer segments in logical order */
+		uint32_t phys;	/* physical offset from start of mem buffer */
+		uint32_t len;	/* length of segment */
+	} seg[2] = { {0}, {0} };
+	size_t done = 0;
+	unsigned int i;
+
+	if (flags & OVERFLOW) {
+		if (cursor > count)	/* Shouldn't really happen, but... */
+			cursor = 0;
+		seg[0] = (struct seg){.phys = cursor, .len = count - cursor};
+		seg[1] = (struct seg){.phys = 0, .len = cursor};
+	} else {
+		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, count)};
+	}
+	debug("cursor = %x\n", (unsigned int) cursor);
+	debug("size = %x\n", (unsigned int) count);
+
+	for (i = 0; i < ARRAY_SIZE(seg) && count > done; i++) {
+		done += memory_read_from_buffer(buf + done, count - done, &pos,
+			con->body + seg[i].phys, seg[i].len);
+		pos -= seg[i].len;
+	}
+	return done;
+}
+
 char *fwts_coreboot_cbmem_console_dump(void)
 {
 	unsigned int j;
@@ -300,35 +330,7 @@ char *fwts_coreboot_cbmem_console_dump(void)
 		return NULL;
 
 	coreboot_log = malloc(console_p->size);
-
-	size_t pos = 0;
-	size_t count = console_p->size;
-	uint32_t cursor = console->cursor & CURSOR_MASK;
-	uint32_t flags = console->cursor & ~CURSOR_MASK;
-	uint32_t size = console_p->size;
-	struct seg {	/* describes ring buffer segments in logical order */
-		uint32_t phys;	/* physical offset from start of mem buffer */
-		uint32_t len;	/* length of segment */
-	} seg[2] = { {0}, {0} };
-	size_t done = 0;
-	unsigned int i;
-
-	if (flags & OVERFLOW) {
-		if (cursor > size)	/* Shouldn't really happen, but... */
-			cursor = 0;
-		seg[0] = (struct seg){.phys = cursor, .len = size - cursor};
-		seg[1] = (struct seg){.phys = 0, .len = cursor};
-	} else {
-		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, size)};
-	}
-	debug("cursor = %x\n", (unsigned int) cursor);
-	debug("size = %x\n", (unsigned int) count);
-
-	for (i = 0; i < ARRAY_SIZE(seg) && count > done; i++) {
-		done += memory_read_from_buffer(coreboot_log + done, count - done, &pos,
-			console->body + seg[i].phys, seg[i].len);
-		pos -= seg[i].len;
-	}
+	memconsole_coreboot_read(console, coreboot_log, 0, console_p->size);
 
 	free(console_p);
 	free(console);
