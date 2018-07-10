@@ -26,7 +26,6 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <errno.h>
 
 #include "fwts.h"
 
@@ -90,6 +89,7 @@ static void *map_memory(unsigned long long addr, size_t size)
 	void *phy;
 
 	phy = fwts_mmap(addr, size);
+
 	if (phy == FWTS_MAP_FAILED)
 		return FWTS_MAP_FAILED;
 
@@ -116,6 +116,7 @@ static uint16_t ipchcksum(const void *addr, unsigned size)
 	sum = (sum >> 16) + (sum & 0xffff);
 	sum += (sum >> 16);
 	sum = ~sum & 0xffff;
+
 	return (uint16_t) sum;
 }
 
@@ -191,6 +192,7 @@ static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmem_co
 	size_t i;
 
 	req_size = table_size;
+
 	/* Default to 4 KiB search space. */
 	if (req_size == 0)
 		req_size = 4 * 1024;
@@ -210,6 +212,7 @@ static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmem_co
 		void *map;
 
 		lbh = buf + i;
+
 		if (memcmp(lbh->signature, "LBIO", sizeof(lbh->signature)) ||
 		    !lbh->header_bytes ||
 		    ipchcksum(lbh, sizeof(*lbh))) {
@@ -241,12 +244,8 @@ static int parse_cbtable(uint64_t address, size_t table_size, uint64_t *cbmem_co
 		}
 
 		free(buf);
-
-		/*
-		 * Table parsing succeeded. If forwarding table not found update
-		 * coreboot table mapping for future use.
-		 */
 		free(map);
+
 		return 0;
 	}
 
@@ -263,12 +262,15 @@ static ssize_t memory_read_from_buffer(void *to, size_t count, size_t *ppos,
 
 	if (pos >= available)
 		return 0;
+
 	if (count > available - pos)
 		count = available - pos;
+
 	for (i= 0; i< count; i++) {
             if (((char *)from)[i+pos] > '\0')
             ((char *)to)[i] = ((char *)from)[i+pos];
 	}
+
 	*ppos = pos + count;
 
 	return count;
@@ -293,6 +295,7 @@ static ssize_t memconsole_coreboot_read(struct cbmem_console *con, char *buf, si
 	} else {
 		seg[0] = (struct seg){.phys = 0, .len = MIN(cursor, count)};
 	}
+
 	debug("cursor = %x\n", (unsigned int) cursor);
 	debug("size = %x\n", (unsigned int) count);
 
@@ -301,6 +304,7 @@ static ssize_t memconsole_coreboot_read(struct cbmem_console *con, char *buf, si
 			con->body + seg[i].phys, seg[i].len);
 		pos -= seg[i].len;
 	}
+
 	return done;
 }
 
